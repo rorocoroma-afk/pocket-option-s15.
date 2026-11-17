@@ -1,0 +1,368 @@
+
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pocket Option S15 AI</title>
+
+<style>
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 18px;
+  background: #090e19;
+  color: white;
+  font-family: Arial, sans-serif;
+}
+
+.container {
+  max-width: 500px;
+  margin: auto;
+}
+
+h1 {
+  text-align: center;
+  color: #36d6a2;
+}
+
+.subtitle {
+  text-align: center;
+  color: #aab5c8;
+}
+
+.card {
+  background: #151e2e;
+  border: 1px solid #29364b;
+  border-radius: 14px;
+  padding: 18px;
+  margin-top: 18px;
+}
+
+label {
+  display: block;
+  margin: 14px 0 7px;
+  color: #b9c6da;
+}
+
+input, textarea, select {
+  width: 100%;
+  padding: 13px;
+  border-radius: 9px;
+  border: 1px solid #3b4961;
+  background: #0c1422;
+  color: white;
+  font-size: 15px;
+}
+
+textarea {
+  min-height: 150px;
+  resize: vertical;
+}
+
+button {
+  width: 100%;
+  padding: 15px;
+  margin-top: 14px;
+  border: 0;
+  border-radius: 9px;
+  font-size: 16px;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+.analyze {
+  background: #19c991;
+  color: #07150f;
+}
+
+.validate {
+  background: #2879ed;
+  color: white;
+}
+
+button:disabled {
+  opacity: .4;
+  cursor: not-allowed;
+}
+
+.signal {
+  text-align: center;
+  font-size: 35px;
+  font-weight: bold;
+  padding: 18px;
+}
+
+.call { color: #20e69c; }
+.put { color: #ff6476; }
+.wait { color: #ffc45d; }
+
+.info {
+  color: #b9c6da;
+  line-height: 1.8;
+}
+
+.status {
+  text-align: center;
+  color: #ffc45d;
+  margin-top: 12px;
+}
+
+.small {
+  font-size: 12px;
+  color: #93a2b9;
+  line-height: 1.6;
+}
+</style>
+</head>
+
+<body>
+<div class="container">
+
+<h1>POCKET OPTION AI</h1>
+<p class="subtitle">Analyse technique des bougies S15</p>
+
+<div class="card">
+
+<label>Choisir le marché</label>
+<select id="market">
+  <option value="EUR/USD">EUR/USD</option>
+  <option value="GBP/USD">GBP/USD</option>
+  <option value="USD/JPY">USD/JPY</option>
+  <option value="AUD/USD">AUD/USD</option>
+  <option value="USD/CAD">USD/CAD</option>
+  <option value="EUR/JPY">EUR/JPY</option>
+  <option value="OTC">OTC — source non connectée</option>
+</select>
+
+<label>Type de bougie</label>
+<input value="S15 — 15 secondes" disabled>
+
+<label>Données des bougies S15 réelles (JSON)</label>
+<textarea id="candles" placeholder='Colle ici les données de tes bougies réelles au format JSON'></textarea>
+
+<p class="small">
+Il faut au moins 30 bougies consécutives, espacées exactement de 15 secondes.
+Chaque bougie doit contenir "time" et "close".
+</p>
+
+<button class="analyze" id="analyzeBtn" onclick="analyze()">
+ANALYSER LE MARCHÉ
+</button>
+
+<p class="status" id="status">En attente de données réelles</p>
+
+</div>
+
+<div class="card">
+
+<h2 style="text-align:center">RÉSULTAT DE L'ANALYSE</h2>
+
+<div class="signal wait" id="signal">---</div>
+
+<div class="info">
+  <div>Marché : <strong id="resultMarket">---</strong></div>
+  <div>Unité : <strong>S15</strong></div>
+  <div>Score technique : <strong id="confidence">---</strong></div>
+  <div>RSI : <strong id="rsi">---</strong></div>
+  <div>EMA 9 : <strong id="ema9">---</strong></div>
+  <div>EMA 21 : <strong id="ema21">---</strong></div>
+  <div>Durée d'expiration : <strong id="expiry">---</strong></div>
+  <div>Heure d'expiration : <strong id="expiryTime">---</strong></div>
+</div>
+
+<h3>Explication</h3>
+<div id="reasons" class="info">Aucune analyse disponible.</div>
+
+<button class="validate" id="validateBtn" onclick="validateSignal()" disabled>
+VALIDER LE SIGNAL
+</button>
+
+<p class="small" id="validationStatus">
+La validation manuelle sera nécessaire avant la prochaine analyse.
+</p>
+
+</div>
+
+<div class="card">
+<h3>Historique</h3>
+<div id="history" class="info">Aucun signal enregistré.</div>
+</div>
+
+<p class="small">
+Cet outil fournit une analyse technique, pas une garantie de résultat.
+Aucune transaction n'est exécutée automatiquement.
+</p>
+
+</div>
+
+<script>
+const API = "https://pocket-option-s15-1.onrender.com";
+
+let waitingValidation = false;
+
+async function analyze() {
+
+  if (waitingValidation) {
+    alert("Valide d'abord le signal précédent.");
+    return;
+  }
+
+  const market = document.getElementById("market").value;
+
+  if (market === "OTC") {
+    alert("Le flux de données OTC réel n'est pas encore connecté.");
+    return;
+  }
+
+  let candles;
+
+  try {
+    candles = JSON.parse(
+      document.getElementById("candles").value
+    );
+
+    if (!Array.isArray(candles)) {
+      throw new Error("Le format doit être une liste JSON.");
+    }
+
+  } catch (error) {
+    alert("Données invalides : " + error.message);
+    return;
+  }
+
+  const button = document.getElementById("analyzeBtn");
+  button.disabled = true;
+
+  document.getElementById("status").textContent =
+    "Analyse en cours...";
+
+  try {
+
+    const response = await fetch(API + "/analyze", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        market: market,
+        candles: candles
+      })
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || "Erreur du serveur.");
+    }
+
+    showResult(data);
+
+  } catch (error) {
+
+    document.getElementById("status").textContent =
+      "Erreur : " + error.message;
+
+    button.disabled = false;
+  }
+}
+
+function showResult(data) {
+
+  const signal = document.getElementById("signal");
+
+  signal.textContent = data.signal;
+
+  signal.className = "signal " +
+    (data.signal === "CALL" ? "call" :
+    data.signal === "PUT" ? "put" : "wait");
+
+  document.getElementById("resultMarket").textContent =
+    data.market;
+
+  document.getElementById("confidence").textContent =
+    data.confidence_score + "/100 — score technique";
+
+  document.getElementById("rsi").textContent = data.rsi;
+  document.getElementById("ema9").textContent = data.ema_9;
+  document.getElementById("ema21").textContent = data.ema_21;
+
+  document.getElementById("expiry").textContent =
+    data.expiry_seconds + " secondes";
+
+  const expiration = new Date(
+    new Date(data.analyzed_at).getTime() +
+    data.expiry_seconds * 1000
+  );
+
+  document.getElementById("expiryTime").textContent =
+    expiration.toLocaleTimeString("fr-FR");
+
+  document.getElementById("reasons").innerHTML =
+    data.reasons.length
+      ? data.reasons.map(r => "• " + escapeHTML(r)).join("<br>")
+      : "Aucun argument technique.";
+
+  waitingValidation = true;
+
+  document.getElementById("validateBtn").disabled = false;
+  document.getElementById("analyzeBtn").disabled = true;
+
+  document.getElementById("status").textContent =
+    "Analyse terminée.";
+
+  document.getElementById("validationStatus").textContent =
+    "Valide ce signal pour autoriser la prochaine analyse.";
+
+  addHistory(data);
+}
+
+function validateSignal() {
+
+  if (!waitingValidation) return;
+
+  waitingValidation = false;
+
+  document.getElementById("validateBtn").disabled = true;
+  document.getElementById("analyzeBtn").disabled = false;
+
+  document.getElementById("status").textContent =
+    "Signal validé. Nouvelle analyse autorisée.";
+
+  document.getElementById("validationStatus").textContent =
+    "Tu peux maintenant demander une nouvelle analyse.";
+}
+
+function escapeHTML(value) {
+  return String(value).replace(/[&<>"']/g, char => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
+  })[char]);
+}
+
+function addHistory(data) {
+
+  const history = document.getElementById("history");
+
+  if (history.textContent === "Aucun signal enregistré.") {
+    history.textContent = "";
+  }
+
+  const item = document.createElement("div");
+  item.textContent =
+    data.market + " — " + data.signal +
+    " — Score : " + data.confidence_score + "/100";
+
+  history.prepend(item);
+}
+</script>
+
+</body>
+  </html>
+  
